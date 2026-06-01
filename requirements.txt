@@ -1,0 +1,16 @@
+# Halibut Predictor — San Diego & Mission Bay
+streamlit>=1.40
+streamlit-folium>=0.20
+folium>=0.16
+numpy>=1.26
+scipy>=1.11
+requests>=2.31
+shapely>=2.0
+matplotlib>=3.7
+Pillow>=10.0      # reads the NOAA float32 GeoTIFF bathymetry raster
+
+# Autonomous data acquisition (each fetcher degrades gracefully if missing/offline)
+osmnx>=1.9          # OSM shorelines / water polygons (Overpass fallback built in)
+noaa-coops>=0.4     # NOAA CO-OPS tides (station 8628400)
+ndbc-api>=0.1       # NDBC buoy water temperature / conditions
+owslib>=0.29        # OGC WMS/WFS client (optional NOAA chart services)
