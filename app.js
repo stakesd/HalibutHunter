@@ -33,22 +33,29 @@
     return shoe.pop();
   }
 
-  // Drill mode deals from an infinite deck, weighted towards pairs and soft hands
-  // so the trickier decisions come up more often.
+  // Drill mode focuses on double and split decisions: every hand is either a
+  // pair or a hard 9, 10 or 11. Dealer up cards are spread evenly across the
+  // chart columns so every cell gets practised.
+  const HARD_DOUBLES = {
+    9: [['2', '7'], ['3', '6'], ['4', '5']],
+    10: [['2', '8'], ['3', '7'], ['4', '6']],
+    11: [['2', '9'], ['3', '8'], ['4', '7'], ['5', '6']],
+  };
+  const TENS = ['10', 'J', 'Q', 'K'];
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   function drillStart() {
-    const roll = Math.random();
     let a, b;
-    if (roll < 0.25) { a = randRank(); b = S.cardValue(a) === 10 && Math.random() < 0.7 ? randRank() : a; }
-    else if (roll < 0.5) { a = 'A'; b = ['2', '3', '4', '5', '6', '7', '8', '9'][Math.floor(Math.random() * 8)]; }
-    else {
-      // hard hands, avoid trivial ones (hard 17+ / naturals) most of the time
-      do { a = randRank(); b = randRank(); } while (
-        a === 'A' || b === 'A' || (S.handTotal([a, b]).total >= 17 && Math.random() < 0.8)
-      );
+    if (Math.random() < 0.5) {
+      const v = pick(['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T']);
+      [a, b] = v === 'T' ? [pick(TENS), pick(TENS)] : [v, v];
+    } else {
+      [a, b] = pick(HARD_DOUBLES[pick([9, 10, 11])]);
     }
     const cards = [a, b].map(r => ({ rank: r, suit: randSuit() }));
     if (Math.random() < 0.5) cards.reverse();
-    return { player: cards, up: { rank: randRank(), suit: randSuit() } };
+    const upVal = pick(['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'A']);
+    const up = upVal === 'T' ? pick(TENS) : upVal;
+    return { player: cards, up: { rank: up, suit: randSuit() } };
   }
 
   // ---------- Round state ----------
@@ -74,6 +81,7 @@
     if (stats.mode === 'drill') {
       const d = drillStart();
       st = { hands: [{ cards: d.player, bet: BET }], active: 0, dealer: [d.up], phase: 'player', splitUsed: false };
+      $('#outcome').textContent = 'Doubles & splits drill';
       render();
       return;
     }

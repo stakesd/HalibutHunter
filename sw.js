@@ -1,5 +1,5 @@
 // Offline cache. Bump VERSION whenever app files change.
-const VERSION = 'hh-bj-v2';
+const VERSION = 'hh-bj-v3';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'strategy.js', 'manifest.webmanifest',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 

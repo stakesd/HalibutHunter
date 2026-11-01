@@ -18,7 +18,7 @@ Because there's no hole card, the strategy differs from the US chart: **hit** 10
 ## Modes
 
 - **Play**: full hands from a 6-deck shoe with a £10 flat bet. Every decision is graded.
-- **Drill**: one decision per hand, weighted towards pairs and soft hands. Fastest way to learn.
+- **Drill**: doubles & splits only. Every hand is a pair or a hard 9/10/11 against an even spread of dealer cards. One decision per hand.
 - **Chart**: the full strategy chart, with your last hand highlighted.
 - **Stats**: accuracy, streaks, and the hands you miss most (saved on your phone).
 
