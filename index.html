@@ -56,6 +56,7 @@
         </div>
         <div class="row2">
           <button id="btn-hint" class="ghost" type="button">Hint</button>
+          <button id="btn-chart" class="ghost" type="button">Chart</button>
           <button id="btn-deal" class="deal" type="button">Deal</button>
         </div>
       </div>
@@ -84,6 +85,13 @@
       <button id="btn-reset" class="danger" type="button">Reset stats</button>
     </section>
   </main>
+
+  <div id="sheet" class="sheet" aria-label="Strategy chart">
+    <div class="sheet-body">
+      <div class="sheet-head">Strategy chart <span>Tap anywhere to close</span></div>
+      <div id="sheet-chart"></div>
+    </div>
+  </div>
 
   <nav class="tabbar">
     <button data-view="table" class="active" type="button"><span>♠</span>Table</button>

@@ -90,7 +90,8 @@
     if (!st || st.phase !== 'player') return;
     const h = st.hands[st.active];
     const opt = options(h);
-    if ((action === 'D' && !opt.canDouble) || (action === 'P' && !opt.canSplit)) return;
+    if (action === 'D' && !opt.canDouble) { explainBlocked('D', h); return; }
+    if (action === 'P' && !opt.canSplit) { explainBlocked('P', h); return; }
 
     const ranks = ranksOf(h.cards);
     const up = st.dealer[0].rank;
@@ -103,6 +104,21 @@
       return;
     }
     apply(action);
+  }
+
+  // Tell the player why Double / Split isn't available instead of silently ignoring the tap.
+  function explainBlocked(action, h) {
+    const ranks = ranksOf(h.cards);
+    let why;
+    if (action === 'D') {
+      if (h.fromSplit) why = 'No doubling after a split.';
+      else if (h.cards.length > 2) why = 'You can only double on your first two cards.';
+      else why = `UK rules: double on hard 9, 10 or 11 only. You have ${S.describeHand(ranks, false)}.`;
+    } else {
+      if (!isPair(h)) why = 'You can only split a pair (two cards of the same value).';
+      else why = 'Only one split is allowed per hand.';
+    }
+    showFeedback('hint', `Can't ${ACTION_NAMES[action].toLowerCase()} here`, why, '');
   }
 
   function grade(action, rec, ranks, up, opt) {
@@ -245,7 +261,8 @@
     const opt = playing ? options(st.hands[st.active]) : { canDouble: false, canSplit: false };
     document.querySelectorAll('.act').forEach(b => {
       const a = b.dataset.act;
-      b.disabled = !playing || (a === 'D' && !opt.canDouble) || (a === 'P' && !opt.canSplit);
+      b.disabled = !playing;
+      b.classList.toggle('off', playing && ((a === 'D' && !opt.canDouble) || (a === 'P' && !opt.canSplit)));
     });
     $('#btn-hint').disabled = !playing;
     $('#btn-deal').disabled = playing;
@@ -279,7 +296,7 @@
 
   // ---------- Chart ----------
   let highlight = null;
-  function renderChart() {
+  function renderChart(target = '#chart') {
     const c = S.chart();
     const hlKey = highlight && highlight.key;
     const hlCol = highlight && highlight.col;
@@ -287,7 +304,7 @@
     const table = (title, rows) => `<h3 class="chart-title">${title}</h3><table class="strat">${head}${rows.map(r =>
       `<tr class="${r.key === hlKey ? 'hl' : ''}"><th class="rowh">${r.label}</th>${r.cells.map((a, i) =>
         `<td class="k-${a}${r.key === hlKey && c.cols[i] === hlCol ? ' hl' : ''}">${a}</td>`).join('')}</tr>`).join('')}</table>`;
-    $('#chart').innerHTML = table('Hard totals', c.hard) + table('Soft totals', c.soft) + table('Pairs', c.pairs);
+    $(target).innerHTML = table('Hard totals', c.hard) + table('Soft totals', c.soft) + table('Pairs', c.pairs);
   }
 
   // ---------- Stats ----------
@@ -326,6 +343,18 @@
   }));
   $('#btn-deal').addEventListener('click', deal);
   $('#btn-hint').addEventListener('click', hint);
+  $('#btn-chart').addEventListener('click', () => {
+    if (st && st.dealer.length) {
+      const h = st.hands[st.active] || st.hands[st.hands.length - 1];
+      const canSplit = st.phase === 'player' ? options(h).canSplit : false;
+      if (st.phase === 'player') highlight = { key: S.chartKey(ranksOf(h.cards), canSplit), col: S.cardValue(st.dealer[0].rank) };
+    }
+    renderChart('#sheet-chart');
+    $('#sheet').classList.add('open');
+    const hl = document.querySelector('#sheet-chart tr.hl');
+    if (hl) hl.scrollIntoView({ block: 'center' });
+  });
+  $('#sheet').addEventListener('click', () => $('#sheet').classList.remove('open'));
   $('#mode-play').addEventListener('click', () => setMode('play'));
   $('#mode-drill').addEventListener('click', () => setMode('drill'));
   document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
