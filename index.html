@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Blackjack">
+  <meta name="theme-color" content="#0b3d2a">
+  <title>Halibut Hunter Blackjack</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">Halibut Hunter <span>UK Blackjack Trainer</span></div>
+    <div class="mode-toggle" role="tablist" aria-label="Mode">
+      <button id="mode-play" class="active" type="button">Play</button>
+      <button id="mode-drill" type="button">Drill</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- PLAY / DRILL -->
+    <section id="view-table" class="view active">
+      <div class="scorebar">
+        <div><span id="sb-acc">–</span><small>accuracy</small></div>
+        <div><span id="sb-streak">0</span><small>streak</small></div>
+        <div><span id="sb-bank">£1000</span><small>bankroll</small></div>
+      </div>
+
+      <div class="felt">
+        <div class="area dealer">
+          <div class="label">Dealer <b id="dealer-total"></b></div>
+          <div class="cards" id="dealer-cards"></div>
+        </div>
+
+        <div id="feedback" class="feedback hidden"></div>
+
+        <div class="area player">
+          <div id="player-hands" class="hands"></div>
+        </div>
+      </div>
+
+      <div id="outcome" class="outcome"></div>
+
+      <div class="controls">
+        <div class="actions" id="actions">
+          <button data-act="H" class="act hit" type="button">Hit</button>
+          <button data-act="S" class="act stand" type="button">Stand</button>
+          <button data-act="D" class="act double" type="button">Double</button>
+          <button data-act="P" class="act split" type="button">Split</button>
+        </div>
+        <div class="row2">
+          <button id="btn-hint" class="ghost" type="button">Hint</button>
+          <button id="btn-deal" class="deal" type="button">Deal</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHART -->
+    <section id="view-chart" class="view">
+      <p class="note">Dealer up card across the top. <b class="k-H">H</b> Hit · <b class="k-S">S</b> Stand · <b class="k-D">D</b> Double · <b class="k-P">P</b> Split</p>
+      <div id="chart"></div>
+      <p class="note">Never take insurance. Can't double (e.g. after a split)? Hit instead.</p>
+    </section>
+
+    <!-- STATS -->
+    <section id="view-stats" class="view">
+      <div class="stat-grid" id="stat-grid"></div>
+      <h3>Most missed</h3>
+      <ul id="missed" class="missed"></ul>
+      <h3>Table rules</h3>
+      <ul class="rules">
+        <li>6 decks, dealer stands on all 17s</li>
+        <li><b>No hole card</b>: dealer's second card is dealt after you act. Dealer blackjack takes your doubles and splits too.</li>
+        <li>Double on hard 9, 10 or 11 only</li>
+        <li>Split once, no doubling after a split, split aces get one card each</li>
+        <li>Blackjack pays 3:2 · no surrender · £10 flat bet</li>
+      </ul>
+      <button id="btn-reset" class="danger" type="button">Reset stats</button>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-view="table" class="active" type="button"><span>♠</span>Table</button>
+    <button data-view="chart" type="button"><span>▦</span>Chart</button>
+    <button data-view="stats" type="button"><span>%</span>Stats</button>
+  </nav>
+
+  <script src="strategy.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
