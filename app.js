@@ -6,15 +6,25 @@
   const DECKS = 6;
   const BET = 10;
   const SUITS = ['♠', '♥', '♦', '♣'];
-  const ACTION_NAMES = { H: 'Hit', S: 'Stand', D: 'Double', P: 'Split' };
+  const ACTION_NAMES = { H: 'Hit', S: 'Stand', D: 'Double', P: 'Split', R: 'Surrender' };
   const STORE_KEY = 'hh-blackjack-v1';
 
   // ---------- Persistent stats ----------
-  const defaults = () => ({ decisions: 0, correct: 0, streak: 0, best: 0, hands: 0, bankroll: 1000, missed: {}, mode: 'play' });
+  const defaults = () => ({ decisions: 0, correct: 0, streak: 0, best: 0, hands: 0, bankroll: 1000, missed: {}, mode: 'play',
+    rules: { preset: 'us', h17: false, surrender: false } });
   let stats;
   try { stats = Object.assign(defaults(), JSON.parse(localStorage.getItem(STORE_KEY)) || {}); }
   catch { stats = defaults(); }
   const save = () => localStorage.setItem(STORE_KEY, JSON.stringify(stats));
+
+  // ---------- Rules ----------
+  function rules() {
+    const r = stats.rules;
+    const base = S.PRESETS[r.preset] || S.PRESETS.us;
+    return r.preset === 'us' ? { ...base, h17: !!r.h17, surrender: !!r.surrender } : { ...base };
+  }
+  const cur = () => (stats.rules.preset === 'uk' ? '£' : '$');
+  const money = (n) => `${n < 0 ? '−' : ''}${cur()}${Math.abs(n)}`;
 
   // ---------- Shoe ----------
   let shoe = [];
@@ -33,8 +43,8 @@
     return shoe.pop();
   }
 
-  // Drill mode focuses on double and split decisions: every hand is either a
-  // pair or a hard 9, 10 or 11. Dealer up cards are spread evenly across the
+  // Drill mode focuses on double and split decisions: every hand is a pair,
+  // a hard 9, 10 or 11, or (when the rules allow it) a soft double candidate. Dealer up cards are spread evenly across the
   // chart columns so every cell gets practised.
   const HARD_DOUBLES = {
     9: [['2', '7'], ['3', '6'], ['4', '5']],
@@ -44,10 +54,14 @@
   const TENS = ['10', 'J', 'Q', 'K'];
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   function drillStart() {
+    const R = rules();
     let a, b;
-    if (Math.random() < 0.5) {
+    const roll = Math.random();
+    if (roll < (R.doubleAny ? 0.4 : 0.5)) {
       const v = pick(['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T']);
       [a, b] = v === 'T' ? [pick(TENS), pick(TENS)] : [v, v];
+    } else if (R.doubleAny && roll < 0.7) {
+      [a, b] = ['A', pick(['2', '3', '4', '5', '6', '7', '8'])]; // soft doubles
     } else {
       [a, b] = pick(HARD_DOUBLES[pick([9, 10, 11])]);
     }
@@ -66,10 +80,12 @@
   const isNatural = (cards) => cards.length === 2 && S.handTotal(ranksOf(cards)).total === 21;
 
   function options(h) {
+    const R = rules();
     const { total, soft } = S.handTotal(ranksOf(h.cards));
     return {
-      canDouble: h.cards.length === 2 && !h.fromSplit && !soft && total >= 9 && total <= 11,
+      canDouble: h.cards.length === 2 && (!h.fromSplit || R.das) && (R.doubleAny || (!soft && total >= 9 && total <= 11)),
       canSplit: isPair(h) && !st.splitUsed,
+      canSurrender: R.surrender && h.cards.length === 2 && !h.fromSplit && st.hands.length === 1,
     };
   }
 
@@ -77,6 +93,7 @@
     if (shoe.length < 52 * DECKS * 0.25) newShoe(); // reshuffle at 75% penetration
     clearFeedback();
     $('#outcome').textContent = '';
+    $('main').scrollTop = 0;
 
     if (stats.mode === 'drill') {
       const d = drillStart();
@@ -89,6 +106,11 @@
     const p = [draw(), draw()];
     const up = draw();
     st = { hands: [{ cards: p, bet: BET }], active: 0, dealer: [up], phase: 'player', splitUsed: false };
+    if (rules().peek) {
+      // US: dealer takes a hole card now and checks it for blackjack straight away.
+      st.hole = draw();
+      if (S.cardValue(up.rank) >= 10 && isNatural([up, st.hole])) { finishRound(); return; }
+    }
     if (isNatural(p)) { finishRound(); return; }
     render();
   }
@@ -100,10 +122,11 @@
     const opt = options(h);
     if (action === 'D' && !opt.canDouble) { explainBlocked('D', h); return; }
     if (action === 'P' && !opt.canSplit) { explainBlocked('P', h); return; }
+    if (action === 'R' && !opt.canSurrender) { explainBlocked('R', h); return; }
 
     const ranks = ranksOf(h.cards);
     const up = st.dealer[0].rank;
-    const rec = S.recommend(ranks, up, opt);
+    const rec = S.recommend(ranks, up, opt, rules());
     grade(action, rec, ranks, up, opt);
 
     if (stats.mode === 'drill') {
@@ -117,14 +140,18 @@
   // Tell the player why Double / Split isn't available instead of silently ignoring the tap.
   function explainBlocked(action, h) {
     const ranks = ranksOf(h.cards);
+    const R = rules();
     let why;
     if (action === 'D') {
-      if (h.fromSplit) why = 'No doubling after a split.';
+      if (h.fromSplit && !R.das) why = 'No doubling after a split.';
       else if (h.cards.length > 2) why = 'You can only double on your first two cards.';
       else why = `UK rules: double on hard 9, 10 or 11 only. You have ${S.describeHand(ranks, false)}.`;
-    } else {
+    } else if (action === 'P') {
       if (!isPair(h)) why = 'You can only split a pair (two cards of the same value).';
       else why = 'Only one split is allowed per hand.';
+    } else {
+      if (!R.surrender) why = 'This table doesn\'t offer surrender. Turn it on in the Rules tab if yours does.';
+      else why = 'You can only surrender your first two cards, before splitting.';
     }
     showFeedback('hint', `Can't ${ACTION_NAMES[action].toLowerCase()} here`, why, '');
   }
@@ -148,13 +175,19 @@
   }
 
   function tipFor(ranks, up, opt, rec) {
+    const R = rules();
     const d = S.cardValue(up);
     const { total, soft } = S.handTotal(ranks);
     const pairVal = opt.canSplit ? S.cardValue(ranks[0]) : 0;
-    if (d >= 10 && ((total === 10 || total === 11) && !soft && ranks.length === 2 || pairVal === 8 || pairVal === 11)) {
+    if (!R.peek && d >= 10 && ((total === 10 || total === 11) && !soft && ranks.length === 2 || pairVal === 8 || pairVal === 11)) {
       return 'No hole card: dealer may still have blackjack, so don\'t put extra money out vs 10 or Ace.';
     }
-    if (rec === 'D' && opt.canDouble === false) return 'Doubling isn\'t allowed here, so hit.';
+    if (rec === 'R') return 'Surrendering gets half your bet back. That beats playing this hand out.';
+    if (R.peek && pairVal === 8) return 'Always split 8s: 16 is the worst hand in blackjack.';
+    if (R.peek && pairVal === 11) return 'Always split aces.';
+    if (R.peek && !soft && total === 11 && rec === 'D') return 'Dealer already checked for blackjack, so 11 is a strong double.';
+    if (soft && rec === 'D') return 'Dealer\'s card is weak. Double your soft hand: one card can\'t bust you.';
+    if (soft && total === 18 && rec === 'S' && d >= 3 && d <= 6 && !opt.canDouble) return 'You\'d double here if you could, so stand.';
     if (!soft && total >= 12 && total <= 16 && d <= 6 && rec === 'S') return 'Dealer shows a bust card: let them take the risk.';
     if (!soft && total >= 12 && total <= 16 && d >= 7) return 'Dealer likely makes 17+, so improve your hand.';
     if (soft && total === 18 && d >= 9) return 'Soft 18 is weak vs 9, 10 or Ace, and you can\'t bust by hitting.';
@@ -171,6 +204,9 @@
       const t = S.handTotal(ranksOf(h.cards)).total;
       if (t >= 21) h.done = true;
     } else if (action === 'S') {
+      h.done = true;
+    } else if (action === 'R') {
+      h.surrendered = true;
       h.done = true;
     } else if (action === 'D') {
       h.bet *= 2;
@@ -201,10 +237,10 @@
     st.phase = 'done';
     st.active = -1;
     const dealer = st.dealer;
-    dealer.push(draw()); // no hole card: second card comes now
+    dealer.push(st.hole || draw()); // UK: no hole card, second card comes now
     const dealerBJ = isNatural(dealer);
     const playerBJ = st.hands.length === 1 && isNatural(st.hands[0].cards);
-    const anyLive = st.hands.some(h => S.handTotal(ranksOf(h.cards)).total <= 21);
+    const anyLive = st.hands.some(h => !h.surrendered && S.handTotal(ranksOf(h.cards)).total <= 21);
 
     if (!dealerBJ && !playerBJ && anyLive) {
       while (S.handTotal(ranksOf(dealer)).total < 17) dealer.push(draw());
@@ -215,7 +251,8 @@
     for (const h of st.hands) {
       const pt = S.handTotal(ranksOf(h.cards)).total;
       let r;
-      if (playerBJ) r = dealerBJ ? ['push', 0, 'Push'] : ['win', h.bet * 1.5, 'Blackjack!'];
+      if (h.surrendered) r = ['lose', -h.bet / 2, 'Surrendered'];
+      else if (playerBJ) r = dealerBJ ? ['push', 0, 'Push'] : ['win', h.bet * 1.5, 'Blackjack!'];
       else if (pt > 21) r = ['lose', -h.bet, 'Bust'];
       else if (dealerBJ) r = ['lose', -h.bet, 'Dealer BJ'];
       else if (dt > 21 || pt > dt) r = ['win', h.bet, 'Win'];
@@ -228,7 +265,7 @@
     stats.hands++;
     save();
     const sign = net > 0 ? '+' : net < 0 ? '−' : '±';
-    $('#outcome').innerHTML = `<span class="res ${net > 0 ? 'win' : net < 0 ? 'lose' : 'push'}">${sign}£${Math.abs(net)}</span>`;
+    $('#outcome').innerHTML = `<span class="res ${net > 0 ? 'win' : net < 0 ? 'lose' : 'push'}">${sign}${cur()}${Math.abs(net)}</span>`;
     render();
   }
 
@@ -266,12 +303,16 @@
 
     // Buttons
     const playing = st && st.phase === 'player';
-    const opt = playing ? options(st.hands[st.active]) : { canDouble: false, canSplit: false };
+    const opt = playing ? options(st.hands[st.active]) : { canDouble: false, canSplit: false, canSurrender: false };
+    const R = rules();
+    $('#actions').classList.toggle('five', R.surrender);
     document.querySelectorAll('.act').forEach(b => {
       const a = b.dataset.act;
       b.disabled = !playing;
-      b.classList.toggle('off', playing && ((a === 'D' && !opt.canDouble) || (a === 'P' && !opt.canSplit)));
+      b.hidden = a === 'R' && !R.surrender;
+      b.classList.toggle('off', playing && ((a === 'D' && !opt.canDouble) || (a === 'P' && !opt.canSplit) || (a === 'R' && !opt.canSurrender)));
     });
+    $('#subtitle').textContent = `Blackjack Trainer · ${R.name}`;
     $('#btn-hint').disabled = !playing;
     $('#btn-deal').disabled = playing;
     $('#btn-deal').textContent = drillPending ? 'Next hand' : 'Deal';
@@ -279,7 +320,7 @@
     // Scorebar
     $('#sb-acc').textContent = stats.decisions ? `${Math.round(100 * stats.correct / stats.decisions)}%` : '–';
     $('#sb-streak').textContent = stats.streak;
-    $('#sb-bank').textContent = `£${stats.bankroll}`;
+    $('#sb-bank').textContent = money(stats.bankroll);
     $('#sb-bank').parentElement.style.display = drillPending ? 'none' : '';
   }
 
@@ -296,7 +337,7 @@
     const opt = options(h);
     const ranks = ranksOf(h.cards);
     const up = st.dealer[0].rank;
-    const rec = S.recommend(ranks, up, opt);
+    const rec = S.recommend(ranks, up, opt, rules());
     showFeedback('hint', `Hint: ${ACTION_NAMES[rec]}`,
       `${S.describeHand(ranks, opt.canSplit)} vs ${up === 'A' ? 'Ace' : S.cardValue(up)}`, tipFor(ranks, up, opt, rec));
     highlight = { key: S.chartKey(ranks, opt.canSplit), col: S.cardValue(up) };
@@ -305,21 +346,50 @@
   // ---------- Chart ----------
   let highlight = null;
   function renderChart(target = '#chart') {
-    const c = S.chart();
+    const c = S.chart(rules());
     const hlKey = highlight && highlight.key;
     const hlCol = highlight && highlight.col;
     const head = `<tr><th></th>${c.cols.map(d => `<th class="${d === hlCol ? 'hlc' : ''}">${d === 11 ? 'A' : d}</th>`).join('')}</tr>`;
     const table = (title, rows) => `<h3 class="chart-title">${title}</h3><table class="strat">${head}${rows.map(r =>
       `<tr class="${r.key === hlKey ? 'hl' : ''}"><th class="rowh">${r.label}</th>${r.cells.map((a, i) =>
-        `<td class="k-${a}${r.key === hlKey && c.cols[i] === hlCol ? ' hl' : ''}">${a}</td>`).join('')}</tr>`).join('')}</table>`;
-    $(target).innerHTML = table('Hard totals', c.hard) + table('Soft totals', c.soft) + table('Pairs', c.pairs);
+        `<td class="k-${a[0]}${r.key === hlKey && c.cols[i] === hlCol ? ' hl' : ''}">${a}</td>`).join('')}</tr>`).join('')}</table>`;
+    const R = rules();
+    const legend = `<p class="note"><b>${R.name}</b>. Dealer up card across the top.<br>
+      <b class="k-H">H</b> Hit · <b class="k-S">S</b> Stand · <b class="k-D">D</b> Double (else hit)${R.doubleAny ? ' · <b class="k-D">Ds</b> Double (else stand)' : ''} · <b class="k-P">P</b> Split${R.surrender ? ' · <b class="k-R">Rh</b> Surrender (else hit) · <b class="k-R">Rs</b>/<b class="k-R">Rp</b> Surrender (else stand / split)' : ''}</p>`;
+    $(target).innerHTML = legend + table('Hard totals', c.hard) + table('Soft totals', c.soft) + table('Pairs', c.pairs);
   }
 
   // ---------- Stats ----------
+  function renderRules() {
+    const r = stats.rules;
+    const R = rules();
+    document.querySelectorAll('[data-rule]').forEach(b => {
+      const [k, v] = b.dataset.rule.split(':');
+      const val = v === 'true' ? true : v === 'false' ? false : v;
+      b.classList.toggle('active', r[k] === val);
+    });
+    $('#us-opts').style.display = r.preset === 'us' ? '' : 'none';
+    const lines = R.peek ? [
+      '6 decks. Dealer takes a hole card and checks for blackjack, so you only lose your original bet to it',
+      `Dealer ${R.h17 ? 'hits' : 'stands on'} soft 17`,
+      'Double on any two cards, including after a split',
+      'Split once (resplitting doesn\'t change basic strategy), split aces get one card each',
+      `Blackjack pays 3:2 · ${R.surrender ? 'late surrender allowed' : 'no surrender'} · never take insurance`,
+    ] : [
+      '6 decks, dealer stands on all 17s',
+      '<b>No hole card</b>: dealer\'s second card comes after you act. Dealer blackjack takes your doubles and splits too.',
+      'Double on hard 9, 10 or 11 only',
+      'Split once, no doubling after a split, split aces get one card each',
+      'Blackjack pays 3:2 · no surrender · never take insurance',
+    ];
+    $('#rules-list').innerHTML = lines.map(l => `<li>${l}</li>`).join('');
+  }
+
   function renderStats() {
+    renderRules();
     const acc = stats.decisions ? `${Math.round(100 * stats.correct / stats.decisions)}%` : '–';
     const cells = [[acc, 'Accuracy'], [stats.decisions, 'Decisions'], [stats.streak, 'Current streak'],
-      [stats.best, 'Best streak'], [stats.hands, 'Hands played'], [`£${stats.bankroll}`, 'Bankroll']];
+      [stats.best, 'Best streak'], [stats.hands, 'Hands played'], [money(stats.bankroll), 'Bankroll']];
     $('#stat-grid').innerHTML = cells.map(([v, l]) => `<div class="stat"><b>${v}</b><small>${l}</small></div>`).join('');
     const missed = Object.entries(stats.missed).sort((a, b) => b[1] - a[1]).slice(0, 8);
     $('#missed').innerHTML = missed.length
@@ -332,6 +402,7 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
     document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
     if (name === 'chart') renderChart();
+    if (name === 'stats') renderRules();
     if (name === 'stats') renderStats();
   }
 
@@ -359,18 +430,31 @@
     }
     renderChart('#sheet-chart');
     $('#sheet').classList.add('open');
+    // Scroll only the pop-up (scrollIntoView would also scroll the table behind it).
+    const body = document.querySelector('.sheet-body');
     const hl = document.querySelector('#sheet-chart tr.hl');
-    if (hl) hl.scrollIntoView({ block: 'center' });
+    body.scrollTop = hl ? hl.offsetTop - body.clientHeight / 2 : 0;
   });
   $('#sheet').addEventListener('click', () => $('#sheet').classList.remove('open'));
+  document.querySelectorAll('[data-rule]').forEach(b => b.addEventListener('click', () => {
+    const [k, v] = b.dataset.rule.split(':');
+    stats.rules[k] = v === 'true' ? true : v === 'false' ? false : v;
+    save();
+    st = null;
+    clearFeedback();
+    $('#outcome').textContent = '';
+    renderStats();
+    render();
+  }));
   $('#mode-play').addEventListener('click', () => setMode('play'));
   $('#mode-drill').addEventListener('click', () => setMode('drill'));
   document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
   $('#btn-reset').addEventListener('click', () => {
     if (!confirm('Reset all stats and bankroll?')) return;
-    const mode = stats.mode;
+    const { mode, rules: kept } = stats;
     stats = defaults();
     stats.mode = mode;
+    stats.rules = kept;
     save();
     renderStats();
     render();

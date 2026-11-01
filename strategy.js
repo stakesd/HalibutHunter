@@ -1,20 +1,32 @@
 /*
- * UK blackjack basic strategy.
+ * Blackjack basic strategy for two rule sets (6 decks):
  *
- * Rules modelled (typical UK casino table):
- *  - 6 decks, dealer stands on all 17s
- *  - European "no hole card": the dealer takes a second card only after all
- *    players have finished. If the dealer then has blackjack, the player loses
- *    the whole stake, including any doubles and splits.
- *  - Double down on hard 9, 10 or 11 only (first two cards)
- *  - Split once only, no double after split, split aces get one card each
- *  - Blackjack pays 3:2, no surrender, never take insurance
+ *  UK (European "no hole card"):
+ *   - Dealer takes a second card only after players act; dealer blackjack
+ *     then takes doubles and splits too
+ *   - Double on hard 9, 10 or 11 only, no double after split, dealer stands soft 17
  *
- * Actions: 'H' hit, 'S' stand, 'D' double, 'P' split.
+ *  US / San Juan (American "hole card"):
+ *   - Dealer peeks for blackjack, so you only ever lose your original bet to it
+ *   - Double on any two cards, double after split allowed
+ *   - Dealer stands or hits soft 17 (rules.h17), optional late surrender
+ *
+ * Common: split once, split aces get one card each, blackjack pays 3:2, no insurance.
+ *
+ * Raw chart codes:
+ *   H hit, S stand, P split, D double (else hit), Ds double (else stand),
+ *   Rh surrender (else hit), Rs surrender (else stand), Rp surrender (else split)
+ * recommend() resolves these to a playable action: H, S, D, P or R.
  */
 (function (root) {
   const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
   const DEALER_COLS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]; // 11 = Ace
+
+  const PRESETS = {
+    uk: { name: 'UK (no hole card)', peek: false, doubleAny: false, das: false, h17: false, surrender: false },
+    us: { name: 'San Juan / US', peek: true, doubleAny: true, das: true, h17: false, surrender: false },
+  };
+  const UK = PRESETS.uk;
 
   function cardValue(rank) {
     if (rank === 'A') return 11;
@@ -38,28 +50,69 @@
 
   const between = (d, lo, hi) => d >= lo && d <= hi;
 
-  // ---- Strategy tables, written as rules (d = dealer up value, 11 = Ace) ----
+  // ---- Strategy tables as rules (d = dealer up value, 11 = Ace) ----
 
-  function hardAction(total, d) {
+  function hardAction(total, d, R) {
+    if (R.peek) {
+      if (R.surrender) {
+        if (total === 16 && d >= 9) return 'Rh';
+        if (total === 15 && (d === 10 || (R.h17 && d === 11))) return 'Rh';
+        if (total === 17 && R.h17 && d === 11) return 'Rs';
+      }
+      if (total <= 8) return 'H';
+      if (total === 9) return between(d, 3, 6) ? 'D' : 'H';
+      if (total === 10) return d <= 9 ? 'D' : 'H';
+      if (total === 11) return d <= 10 || R.h17 ? 'D' : 'H';
+      if (total === 12) return between(d, 4, 6) ? 'S' : 'H';
+      if (total <= 16) return d <= 6 ? 'S' : 'H';
+      return 'S';
+    }
+    // UK no hole card
     if (total <= 8) return 'H';
     if (total === 9) return between(d, 3, 6) ? 'D' : 'H';
-    if (total === 10 || total === 11) return d <= 9 ? 'D' : 'H'; // no-hole-card: hit vs 10/A
+    if (total === 10 || total === 11) return d <= 9 ? 'D' : 'H';
     if (total === 12) return between(d, 4, 6) ? 'S' : 'H';
     if (total <= 16) return d <= 6 ? 'S' : 'H';
     return 'S';
   }
 
-  function softAction(total, d) {
-    // Doubling soft hands is not allowed (hard 9-11 only).
+  function softAction(total, d, R) {
+    if (R.doubleAny) {
+      if (total <= 14) return between(d, 5, 6) ? 'D' : 'H';      // A,2 A,3
+      if (total <= 16) return between(d, 4, 6) ? 'D' : 'H';      // A,4 A,5
+      if (total === 17) return between(d, 3, 6) ? 'D' : 'H';     // A,6
+      if (total === 18) {                                        // A,7
+        if (between(d, 3, 6) || (R.h17 && d === 2)) return 'Ds';
+        return d <= 8 ? 'S' : 'H';
+      }
+      if (total === 19) return R.h17 && d === 6 ? 'Ds' : 'S';   // A,8
+      return 'S';
+    }
+    // UK: soft hands can't be doubled
     if (total <= 17) return 'H';
     if (total === 18) return d <= 8 ? 'S' : 'H';
     return 'S';
   }
 
-  // Returns 'P' if the pair should be split, otherwise null (play as a total).
-  function pairAction(pairValue, d) {
-    switch (pairValue) {
-      case 11: return d <= 10 ? 'P' : null; // A,A: hit vs dealer Ace (no hole card)
+  // Raw code if the pair should be split (or surrendered), otherwise null (play as a total).
+  function pairAction(v, d, R) {
+    if (R.peek) { // US, double after split allowed
+      switch (v) {
+        case 11: return 'P';
+        case 10: return null;
+        case 9: return (d <= 9 && d !== 7) ? 'P' : 'S';
+        case 8: return R.surrender && R.h17 && d === 11 ? 'Rp' : 'P';
+        case 7: return d <= 7 ? 'P' : null;
+        case 6: return d <= 6 ? 'P' : null;
+        case 5: return null;
+        case 4: return between(d, 5, 6) ? 'P' : null;
+        case 3:
+        case 2: return d <= 7 ? 'P' : null;
+      }
+      return null;
+    }
+    switch (v) { // UK no hole card, no double after split
+      case 11: return d <= 10 ? 'P' : null;
       case 2:
       case 3: return between(d, 4, 7) ? 'P' : null;
       case 4:
@@ -67,30 +120,42 @@
       case 10: return null;
       case 6: return between(d, 3, 6) ? 'P' : null;
       case 7: return d <= 7 ? 'P' : null;
-      case 8: return d <= 9 ? 'P' : null; // 8,8: hit vs 10/A (no hole card)
+      case 8: return d <= 9 ? 'P' : null;
       case 9: return (d <= 9 && d !== 7) ? 'P' : 'S';
     }
     return null;
+  }
+
+  // Turn a raw chart code into an action the player can actually take.
+  function resolve(code, opts, fallbackTotalAction) {
+    switch (code) {
+      case 'D': return opts.canDouble ? 'D' : 'H';
+      case 'Ds': return opts.canDouble ? 'D' : 'S';
+      case 'Rh': return opts.canSurrender ? 'R' : 'H';
+      case 'Rs': return opts.canSurrender ? 'R' : 'S';
+      case 'Rp': return opts.canSurrender ? 'R' : (opts.canSplit ? 'P' : fallbackTotalAction());
+      default: return code;
+    }
   }
 
   /**
    * Recommend an action.
    * @param {string[]} ranks    player's cards, e.g. ['A', '7']
    * @param {string}   dealerUp dealer's up card rank
-   * @param {{canDouble:boolean, canSplit:boolean}} opts
+   * @param {{canDouble:boolean, canSplit:boolean, canSurrender?:boolean}} opts
+   * @param {object}   [R]      rules (defaults to UK)
+   * @returns {'H'|'S'|'D'|'P'|'R'}
    */
-  function recommend(ranks, dealerUp, opts) {
+  function recommend(ranks, dealerUp, opts, R = UK) {
     const d = cardValue(dealerUp);
     const { total, soft } = handTotal(ranks);
+    const byTotal = () => resolve(soft ? softAction(total, d, R) : hardAction(total, d, R), opts, () => 'H');
 
     if (opts.canSplit && ranks.length === 2 && cardValue(ranks[0]) === cardValue(ranks[1])) {
-      const p = pairAction(cardValue(ranks[0]), d);
-      if (p) return p;
+      const p = pairAction(cardValue(ranks[0]), d, R);
+      if (p) return resolve(p, opts, byTotal);
     }
-
-    let a = soft ? softAction(total, d) : hardAction(total, d);
-    if (a === 'D' && !opts.canDouble) a = 'H';
-    return a;
+    return byTotal();
   }
 
   function describeHand(ranks, canSplit) {
@@ -102,15 +167,15 @@
     return `${soft ? 'Soft' : 'Hard'} ${total}`;
   }
 
-  // ---- Chart data (for the reference screen) ----
-  function chart() {
+  // ---- Chart data (raw codes, for the reference screen) ----
+  function chart(R = UK) {
     const hard = [];
     for (let t = 5; t <= 17; t++) {
-      hard.push({ label: t === 17 ? '17+' : String(t), key: `h${t}`, cells: DEALER_COLS.map(d => hardAction(t, d)) });
+      hard.push({ label: t === 17 ? '17+' : String(t), key: `h${t}`, cells: DEALER_COLS.map(d => hardAction(t, d, R)) });
     }
     const soft = [];
-    for (let t = 13; t <= 19; t++) {
-      soft.push({ label: t === 19 ? 'A,8+' : `A,${t - 11}`, key: `s${t}`, cells: DEALER_COLS.map(d => softAction(t, d)) });
+    for (let t = 13; t <= 20; t++) {
+      soft.push({ label: t === 20 ? 'A,9+' : `A,${t - 11}`, key: `s${t}`, cells: DEALER_COLS.map(d => softAction(t, d, R)) });
     }
     const pairs = [];
     for (const v of [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]) {
@@ -118,10 +183,10 @@
       pairs.push({
         label, key: `p${v}`,
         cells: DEALER_COLS.map(d => {
-          const p = pairAction(v, d);
+          const p = pairAction(v, d, R);
           if (p) return p;
           const { total, soft } = handTotal(v === 11 ? ['A', 'A'] : [String(v), String(v)]);
-          return soft ? softAction(total, d) : hardAction(total, d);
+          return soft ? softAction(total, d, R) : hardAction(total, d, R);
         }),
       });
     }
@@ -134,11 +199,11 @@
       return `p${cardValue(ranks[0])}`;
     }
     const { total, soft } = handTotal(ranks);
-    if (soft) return `s${Math.min(Math.max(total, 13), 19)}`;
+    if (soft) return `s${Math.min(Math.max(total, 13), 20)}`;
     return `h${Math.min(Math.max(total, 5), 17)}`;
   }
 
-  const api = { RANKS, DEALER_COLS, cardValue, handTotal, recommend, describeHand, chart, chartKey };
+  const api = { RANKS, DEALER_COLS, PRESETS, cardValue, handTotal, recommend, describeHand, chart, chartKey };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Strategy = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

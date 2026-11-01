@@ -45,3 +45,44 @@ test('chart is complete', () => {
   const c = S.chart();
   for (const rows of [c.hard, c.soft, c.pairs]) for (const r of rows) assert.equal(r.cells.length, 10);
 });
+
+// ---- San Juan / US rules (hole card, double any two, DAS) ----
+const US = S.PRESETS.us;
+const US_H17_SUR = { ...US, h17: true, surrender: true };
+const usRec = (cards, up, R = US, opt = { canDouble: true, canSplit: true, canSurrender: R.surrender }) =>
+  S.recommend(cards, up, opt, R);
+
+test('US: dealer peeks, so double 10/11 vs 10', () => {
+  assert.equal(usRec(['6', '5'], 'K'), 'D');
+  assert.equal(usRec(['6', '5'], 'A'), 'H');          // S17
+  assert.equal(usRec(['6', '5'], 'A', US_H17_SUR), 'D'); // H17
+  assert.equal(usRec(['6', '4'], '10'), 'H');
+});
+test('US: soft doubles', () => {
+  assert.equal(usRec(['A', '2'], '5'), 'D');
+  assert.equal(usRec(['A', '2'], '4'), 'H');
+  assert.equal(usRec(['A', '6'], '3'), 'D');
+  assert.equal(usRec(['A', '7'], '4'), 'D');
+  assert.equal(usRec(['A', '7'], '2'), 'S');
+  assert.equal(usRec(['A', '7'], '2', US_H17_SUR), 'D');
+  assert.equal(usRec(['A', '7'], '9'), 'H');
+  assert.equal(usRec(['A', '8'], '6', US_H17_SUR), 'D');
+  // Ds falls back to stand when you can't double (e.g. three cards)
+  assert.equal(usRec(['A', '4', '3'], '5', US, { canDouble: false, canSplit: false }), 'S');
+});
+test('US: pairs with double after split', () => {
+  assert.equal(usRec(['8', '8'], 'A'), 'P');
+  assert.equal(usRec(['A', 'A'], 'A'), 'P');
+  assert.equal(usRec(['4', '4'], '5'), 'P');
+  assert.equal(usRec(['6', '6'], '2'), 'P');
+  assert.equal(usRec(['2', '2'], '2'), 'P');
+  assert.equal(usRec(['9', '9'], '7'), 'S');
+  assert.equal(usRec(['5', '5'], '9'), 'D');
+});
+test('US: late surrender', () => {
+  assert.equal(usRec(['10', '6'], '10', US_H17_SUR), 'R');
+  assert.equal(usRec(['10', '5'], 'A', US_H17_SUR), 'R');
+  assert.equal(usRec(['10', '7'], 'A', US_H17_SUR), 'R');
+  assert.equal(usRec(['8', '8'], 'A', US_H17_SUR), 'R');
+  assert.equal(usRec(['10', '6'], '10'), 'H'); // no surrender offered
+});
