@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Blackjack">
   <meta name="theme-color" content="#0b3d2a">
-  <title>Halibut Hunter Blackjack</title>
+  <title>Blackjack Trainer</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -16,7 +16,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="title">Halibut Hunter <span id="subtitle">Blackjack Trainer</span></div>
+    <div class="title">Blackjack Trainer <span id="subtitle">Basic strategy</span></div>
     <div class="mode-toggle" role="tablist" aria-label="Mode">
       <button id="mode-play" class="active" type="button">Play</button>
       <button id="mode-drill" type="button">Drill</button>
@@ -74,7 +74,8 @@
       <h3>Table rules</h3>
       <p class="note">Check the sign on your table and match it here.</p>
       <div class="seg">
-        <button data-rule="preset:us" type="button">San Juan / US</button>
+        <button data-rule="preset:tropical" type="button">Tropical</button>
+        <button data-rule="preset:us" type="button">US</button>
         <button data-rule="preset:uk" type="button">UK</button>
       </div>
       <div id="us-opts">
@@ -82,6 +83,12 @@
           <div class="seg small">
             <button data-rule="h17:false" type="button">Stands</button>
             <button data-rule="h17:true" type="button">Hits</button>
+          </div>
+        </div>
+        <div class="opt-row"><span>Double after split</span>
+          <div class="seg small">
+            <button data-rule="das:false" type="button">No</button>
+            <button data-rule="das:true" type="button">Yes</button>
           </div>
         </div>
         <div class="opt-row"><span>Surrender</span>

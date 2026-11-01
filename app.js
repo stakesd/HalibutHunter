@@ -7,21 +7,30 @@
   const BET = 10;
   const SUITS = ['♠', '♥', '♦', '♣'];
   const ACTION_NAMES = { H: 'Hit', S: 'Stand', D: 'Double', P: 'Split', R: 'Surrender' };
-  const STORE_KEY = 'hh-blackjack-v1';
+  const STORE_KEY = 'bj-trainer-v1';
+  const OLD_STORE_KEY = 'hh-blackjack-v1'; // earlier versions saved stats here
 
   // ---------- Persistent stats ----------
   const defaults = () => ({ decisions: 0, correct: 0, streak: 0, best: 0, hands: 0, bankroll: 1000, missed: {}, mode: 'play',
-    rules: { preset: 'us', h17: false, surrender: false } });
+    rules: { preset: 'tropical', h17: false, surrender: false, das: true } });
   let stats;
-  try { stats = Object.assign(defaults(), JSON.parse(localStorage.getItem(STORE_KEY)) || {}); }
-  catch { stats = defaults(); }
+  try {
+    let saved = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (!saved) {
+      // Carry stats over from the old storage key, switching to Tropical Bayamón rules.
+      saved = JSON.parse(localStorage.getItem(OLD_STORE_KEY));
+      if (saved) { saved.rules = defaults().rules; localStorage.removeItem(OLD_STORE_KEY); }
+    }
+    stats = Object.assign(defaults(), saved || {});
+    stats.rules = Object.assign(defaults().rules, stats.rules);
+  } catch { stats = defaults(); }
   const save = () => localStorage.setItem(STORE_KEY, JSON.stringify(stats));
 
   // ---------- Rules ----------
   function rules() {
     const r = stats.rules;
-    const base = S.PRESETS[r.preset] || S.PRESETS.us;
-    return r.preset === 'us' ? { ...base, h17: !!r.h17, surrender: !!r.surrender } : { ...base };
+    const base = S.PRESETS[r.preset] || S.PRESETS.tropical;
+    return r.preset === 'uk' ? { ...base } : { ...base, h17: !!r.h17, surrender: !!r.surrender, das: !!r.das };
   }
   const cur = () => (stats.rules.preset === 'uk' ? '£' : '$');
   const money = (n) => `${n < 0 ? '−' : ''}${cur()}${Math.abs(n)}`;
@@ -57,10 +66,11 @@
     const R = rules();
     let a, b;
     const roll = Math.random();
-    if (roll < (R.doubleAny ? 0.4 : 0.5)) {
+    const softOk = R.double !== 'nineToEleven';
+    if (roll < (softOk ? 0.4 : 0.5)) {
       const v = pick(['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T']);
       [a, b] = v === 'T' ? [pick(TENS), pick(TENS)] : [v, v];
-    } else if (R.doubleAny && roll < 0.7) {
+    } else if (softOk && roll < 0.7) {
       [a, b] = ['A', pick(['2', '3', '4', '5', '6', '7', '8'])]; // soft doubles
     } else {
       [a, b] = pick(HARD_DOUBLES[pick([9, 10, 11])]);
@@ -83,7 +93,7 @@
     const R = rules();
     const { total, soft } = S.handTotal(ranksOf(h.cards));
     return {
-      canDouble: h.cards.length === 2 && (!h.fromSplit || R.das) && (R.doubleAny || (!soft && total >= 9 && total <= 11)),
+      canDouble: h.cards.length === 2 && (!h.fromSplit || R.das) && S.doubleAllowed(total, soft, R),
       canSplit: isPair(h) && !st.splitUsed,
       canSurrender: R.surrender && h.cards.length === 2 && !h.fromSplit && st.hands.length === 1,
     };
@@ -145,7 +155,10 @@
     if (action === 'D') {
       if (h.fromSplit && !R.das) why = 'No doubling after a split.';
       else if (h.cards.length > 2) why = 'You can only double on your first two cards.';
-      else why = `UK rules: double on hard 9, 10 or 11 only. You have ${S.describeHand(ranks, false)}.`;
+      else {
+        const allowed = R.double === 'soft7to11' ? 'hard 7 to 11 or soft hands' : 'hard 9, 10 or 11';
+        why = `This table only lets you double on ${allowed}. You have ${S.describeHand(ranks, false)}.`;
+      }
     } else if (action === 'P') {
       if (!isPair(h)) why = 'You can only split a pair (two cards of the same value).';
       else why = 'Only one split is allowed per hand.';
@@ -179,13 +192,16 @@
     const d = S.cardValue(up);
     const { total, soft } = S.handTotal(ranks);
     const pairVal = opt.canSplit ? S.cardValue(ranks[0]) : 0;
-    if (!R.peek && d >= 10 && ((total === 10 || total === 11) && !soft && ranks.length === 2 || pairVal === 8 || pairVal === 11)) {
+    if (R.loseAll && d >= 10 && ((total === 10 || total === 11) && !soft && ranks.length === 2 || pairVal === 8 || pairVal === 11)) {
       return 'No hole card: dealer may still have blackjack, so don\'t put extra money out vs 10 or Ace.';
     }
     if (rec === 'R') return 'Surrendering gets half your bet back. That beats playing this hand out.';
-    if (R.peek && pairVal === 8) return 'Always split 8s: 16 is the worst hand in blackjack.';
-    if (R.peek && pairVal === 11) return 'Always split aces.';
-    if (R.peek && !soft && total === 11 && rec === 'D') return 'Dealer already checked for blackjack, so 11 is a strong double.';
+    if (!R.loseAll && pairVal === 8) return 'Always split 8s: 16 is the worst hand in blackjack.';
+    if (!R.loseAll && pairVal === 11) return 'Always split aces.';
+    if (!R.loseAll && !soft && (total === 10 || total === 11) && rec === 'D' && d >= 10) {
+      return R.peek ? 'Dealer already checked for blackjack, so this is a strong double.'
+        : 'A dealer blackjack only costs your original bet here, so double.';
+    }
     if (soft && rec === 'D') return 'Dealer\'s card is weak. Double your soft hand: one card can\'t bust you.';
     if (soft && total === 18 && rec === 'S' && d >= 3 && d <= 6 && !opt.canDouble) return 'You\'d double here if you could, so stand.';
     if (!soft && total >= 12 && total <= 16 && d <= 6 && rec === 'S') return 'Dealer shows a bust card: let them take the risk.';
@@ -248,7 +264,15 @@
     const dt = S.handTotal(ranksOf(dealer)).total;
 
     let net = 0;
-    for (const h of st.hands) {
+    const R = rules();
+    if (dealerBJ && !playerBJ && !R.loseAll) {
+      // Original bets only: dealer blackjack takes one bet, extra money from doubles/splits is refunded.
+      st.hands.forEach((h, i) => {
+        const extra = h.doubled || st.hands.length > 1;
+        h.result = i === 0 ? ['lose', -BET, extra ? 'Dealer BJ · extras refunded' : 'Dealer BJ'] : ['push', 0, 'Refunded'];
+      });
+      net = -BET;
+    } else for (const h of st.hands) {
       const pt = S.handTotal(ranksOf(h.cards)).total;
       let r;
       if (h.surrendered) r = ['lose', -h.bet / 2, 'Surrendered'];
@@ -312,7 +336,7 @@
       b.hidden = a === 'R' && !R.surrender;
       b.classList.toggle('off', playing && ((a === 'D' && !opt.canDouble) || (a === 'P' && !opt.canSplit) || (a === 'R' && !opt.canSurrender)));
     });
-    $('#subtitle').textContent = `Blackjack Trainer · ${R.name}`;
+    $('#subtitle').textContent = `Basic strategy · ${R.name}`;
     $('#btn-hint').disabled = !playing;
     $('#btn-deal').disabled = playing;
     $('#btn-deal').textContent = drillPending ? 'Next hand' : 'Deal';
@@ -355,7 +379,7 @@
         `<td class="k-${a[0]}${r.key === hlKey && c.cols[i] === hlCol ? ' hl' : ''}">${a}</td>`).join('')}</tr>`).join('')}</table>`;
     const R = rules();
     const legend = `<p class="note"><b>${R.name}</b>. Dealer up card across the top.<br>
-      <b class="k-H">H</b> Hit · <b class="k-S">S</b> Stand · <b class="k-D">D</b> Double (else hit)${R.doubleAny ? ' · <b class="k-D">Ds</b> Double (else stand)' : ''} · <b class="k-P">P</b> Split${R.surrender ? ' · <b class="k-R">Rh</b> Surrender (else hit) · <b class="k-R">Rs</b>/<b class="k-R">Rp</b> Surrender (else stand / split)' : ''}</p>`;
+      <b class="k-H">H</b> Hit · <b class="k-S">S</b> Stand · <b class="k-D">D</b> Double (else hit)${R.double !== 'nineToEleven' ? ' · <b class="k-D">Ds</b> Double (else stand)' : ''} · <b class="k-P">P</b> Split${R.surrender ? ' · <b class="k-R">Rh</b> Surrender (else hit) · <b class="k-R">Rs</b>/<b class="k-R">Rp</b> Surrender (else stand / split)' : ''}</p>`;
     $(target).innerHTML = legend + table('Hard totals', c.hard) + table('Soft totals', c.soft) + table('Pairs', c.pairs);
   }
 
@@ -368,11 +392,20 @@
       const val = v === 'true' ? true : v === 'false' ? false : v;
       b.classList.toggle('active', r[k] === val);
     });
-    $('#us-opts').style.display = r.preset === 'us' ? '' : 'none';
-    const lines = R.peek ? [
+    $('#us-opts').style.display = r.preset === 'uk' ? 'none' : '';
+    const dasLine = R.das ? 'including after a split' : 'but not after a split';
+    const lines = r.preset === 'tropical' ? [
+      '6 decks. <b>No hole card</b>: the dealer\'s second card comes after you act',
+      'Dealer blackjack only takes your <b>original bet</b>. Doubles and splits are refunded',
+      `Double on hard 7 to 11 and soft hands, ${dasLine}`,
+      `Dealer ${R.h17 ? 'hits' : 'stands on'} soft 17`,
+      'Split once, split aces get one card each',
+      `Blackjack pays 3:2 · ${R.surrender ? 'surrender allowed' : 'no surrender'} · never take insurance`,
+      'Table limits usually $10 to $200',
+    ] : R.peek ? [
       '6 decks. Dealer takes a hole card and checks for blackjack, so you only lose your original bet to it',
       `Dealer ${R.h17 ? 'hits' : 'stands on'} soft 17`,
-      'Double on any two cards, including after a split',
+      `Double on any two cards, ${dasLine}`,
       'Split once (resplitting doesn\'t change basic strategy), split aces get one card each',
       `Blackjack pays 3:2 · ${R.surrender ? 'late surrender allowed' : 'no surrender'} · never take insurance`,
     ] : [

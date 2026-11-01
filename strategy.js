@@ -1,15 +1,16 @@
 /*
- * Blackjack basic strategy for two rule sets (6 decks):
+ * Blackjack basic strategy for three rule sets (6 decks):
  *
- *  UK (European "no hole card"):
- *   - Dealer takes a second card only after players act; dealer blackjack
- *     then takes doubles and splits too
- *   - Double on hard 9, 10 or 11 only, no double after split, dealer stands soft 17
+ *  Tropical Bayamón (default): no hole card, but a dealer blackjack only takes
+ *    your original bet (doubles and splits are refunded). Double on hard 7-11
+ *    and soft hands.
+ *  US: dealer takes a hole card and peeks for blackjack. Double on any two cards.
+ *  UK: no hole card, and a dealer blackjack takes doubles and splits too
+ *    ("loseAll"). Double on hard 9-11 only, no double after split.
  *
- *  US / San Juan (American "hole card"):
- *   - Dealer peeks for blackjack, so you only ever lose your original bet to it
- *   - Double on any two cards, double after split allowed
- *   - Dealer stands or hits soft 17 (rules.h17), optional late surrender
+ * When a dealer blackjack can only cost your original bet (Tropical, US), the
+ * strategy is the same as standard American strategy. Toggles: dealer hits soft
+ * 17 (h17), late surrender, double after split (das).
  *
  * Common: split once, split aces get one card each, blackjack pays 3:2, no insurance.
  *
@@ -22,9 +23,11 @@
   const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
   const DEALER_COLS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]; // 11 = Ace
 
+  // double: 'any' (any two cards), 'soft7to11' (hard 7-11 and soft hands), 'nineToEleven' (hard 9-11)
   const PRESETS = {
-    uk: { name: 'UK (no hole card)', peek: false, doubleAny: false, das: false, h17: false, surrender: false },
-    us: { name: 'San Juan / US', peek: true, doubleAny: true, das: true, h17: false, surrender: false },
+    tropical: { name: 'Tropical Bayamón', peek: false, loseAll: false, double: 'soft7to11', das: true, h17: false, surrender: false },
+    us: { name: 'US (hole card)', peek: true, loseAll: false, double: 'any', das: true, h17: false, surrender: false },
+    uk: { name: 'UK (no hole card)', peek: false, loseAll: true, double: 'nineToEleven', das: false, h17: false, surrender: false },
   };
   const UK = PRESETS.uk;
 
@@ -52,8 +55,17 @@
 
   // ---- Strategy tables as rules (d = dealer up value, 11 = Ace) ----
 
+  // Can this two-card hand be doubled at all under these rules?
+  function doubleAllowed(total, soft, R) {
+    if (R.double === 'any') return true;
+    if (soft) return R.double === 'soft7to11';
+    if (R.double === 'soft7to11') return total >= 7 && total <= 11;
+    return total >= 9 && total <= 11;
+  }
+  const softDoubles = (R) => R.double !== 'nineToEleven';
+
   function hardAction(total, d, R) {
-    if (R.peek) {
+    if (!R.loseAll) {
       if (R.surrender) {
         if (total === 16 && d >= 9) return 'Rh';
         if (total === 15 && (d === 10 || (R.h17 && d === 11))) return 'Rh';
@@ -67,7 +79,7 @@
       if (total <= 16) return d <= 6 ? 'S' : 'H';
       return 'S';
     }
-    // UK no hole card
+    // UK: dealer blackjack takes everything
     if (total <= 8) return 'H';
     if (total === 9) return between(d, 3, 6) ? 'D' : 'H';
     if (total === 10 || total === 11) return d <= 9 ? 'D' : 'H';
@@ -77,7 +89,7 @@
   }
 
   function softAction(total, d, R) {
-    if (R.doubleAny) {
+    if (softDoubles(R)) {
       if (total <= 14) return between(d, 5, 6) ? 'D' : 'H';      // A,2 A,3
       if (total <= 16) return between(d, 4, 6) ? 'D' : 'H';      // A,4 A,5
       if (total === 17) return between(d, 3, 6) ? 'D' : 'H';     // A,6
@@ -96,7 +108,7 @@
 
   // Raw code if the pair should be split (or surrendered), otherwise null (play as a total).
   function pairAction(v, d, R) {
-    if (R.peek) { // US, double after split allowed
+    if (!R.loseAll && R.das) { // double after split allowed
       switch (v) {
         case 11: return 'P';
         case 10: return null;
@@ -111,7 +123,22 @@
       }
       return null;
     }
-    switch (v) { // UK no hole card, no double after split
+    if (!R.loseAll) { // no double after split
+      switch (v) {
+        case 11: return 'P';
+        case 10: return null;
+        case 9: return (d <= 9 && d !== 7) ? 'P' : 'S';
+        case 8: return R.surrender && R.h17 && d === 11 ? 'Rp' : 'P';
+        case 7: return d <= 7 ? 'P' : null;
+        case 6: return between(d, 3, 6) ? 'P' : null;
+        case 5:
+        case 4: return null;
+        case 3:
+        case 2: return between(d, 4, 7) ? 'P' : null;
+      }
+      return null;
+    }
+    switch (v) { // UK: no hole card, dealer blackjack takes everything, no double after split
       case 11: return d <= 10 ? 'P' : null;
       case 2:
       case 3: return between(d, 4, 7) ? 'P' : null;
@@ -203,7 +230,7 @@
     return `h${Math.min(Math.max(total, 5), 17)}`;
   }
 
-  const api = { RANKS, DEALER_COLS, PRESETS, cardValue, handTotal, recommend, describeHand, chart, chartKey };
+  const api = { RANKS, DEALER_COLS, PRESETS, doubleAllowed, cardValue, handTotal, recommend, describeHand, chart, chartKey };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Strategy = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

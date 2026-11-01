@@ -86,3 +86,30 @@ test('US: late surrender', () => {
   assert.equal(usRec(['8', '8'], 'A', US_H17_SUR), 'R');
   assert.equal(usRec(['10', '6'], '10'), 'H'); // no surrender offered
 });
+
+// ---- Tropical Bayamón: no hole card, original bets only, double hard 7-11 + soft ----
+const TROP = S.PRESETS.tropical;
+const tRec = (cards, up, R = TROP) => S.recommend(cards, up, { canDouble: true, canSplit: true, canSurrender: R.surrender }, R);
+
+test('Tropical: original bets only means double/split vs 10 and Ace', () => {
+  assert.equal(tRec(['6', '5'], 'K'), 'D');
+  assert.equal(tRec(['6', '4'], '9'), 'D');
+  assert.equal(tRec(['8', '8'], 'A'), 'P');
+  assert.equal(tRec(['A', 'A'], 'A'), 'P');
+  assert.equal(tRec(['A', '6'], '4'), 'D');
+});
+test('Tropical: doubling allowed on hard 7-11 and soft hands only', () => {
+  assert.equal(S.doubleAllowed(7, false, TROP), true);
+  assert.equal(S.doubleAllowed(11, false, TROP), true);
+  assert.equal(S.doubleAllowed(12, false, TROP), false);
+  assert.equal(S.doubleAllowed(6, false, TROP), false);
+  assert.equal(S.doubleAllowed(18, true, TROP), true);
+});
+test('No double after split changes small pairs', () => {
+  const noDas = { ...TROP, das: false };
+  assert.equal(tRec(['2', '2'], '2', noDas), 'H');
+  assert.equal(tRec(['2', '2'], '4', noDas), 'P');
+  assert.equal(tRec(['4', '4'], '5', noDas), 'H');
+  assert.equal(tRec(['6', '6'], '2', noDas), 'H');
+  assert.equal(tRec(['4', '4'], '5'), 'P');
+});
